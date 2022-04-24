@@ -1,5 +1,5 @@
 [package]
-name = "cross-contract-high-level"
+name = "nft-staking"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
@@ -28,5 +28,3 @@ lto = true
 debug = false
 panic = "abort"
 
-[workspace]
-members = []

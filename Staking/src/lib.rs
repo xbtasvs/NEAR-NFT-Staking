@@ -12,7 +12,7 @@ pub struct CrossContract {
     nft_account: AccountId,
     ft_account: AccountId,
     staked: UnorderedMap<AccountId, Vector<Stake>>,
-    unstaked: UnorderedMap<AccountId, Vector<u128>>,
+    unstaked: UnorderedMap<AccountId, Vector<u128>>, //  What is this?
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
@@ -22,29 +22,17 @@ pub struct Stake {
     owner_id: AccountId,
 }
 
-pub trait From<T> {
-    /// Performs the conversion.
-    #[must_use]
-    fn from_cross_str(_: T) -> Self;
-}
+//
+// No documenatation.
+//
+// Why does Stake have an owner_id field?  From what I can tell stake is mapped owner_id --> Vector<Stake>, so owner is redundant
+//
+// You cannot iterate over an entire Vector.  You will run out of gas.
+//
 
-impl From<&str> for near_sdk::AccountId {
-    /// Converts a `&mut str` into a [`String`].
-    ///
-    /// The result is allocated on the heap.
-    #[inline]
-    fn from_cross_str(s: &str) -> near_sdk::AccountId {
-        s.parse().unwrap()
-    }
-}
+// What happens if you stake the same token_id twice?
 
-// impl Default for near_sdk::AccountId {
-//     /// Creates an empty `String`.
-//     #[inline]
-//     fn default() -> near_sdk::AccountId {
-//         near_sdk::AccountId::from_cross_str("")
-//     }
-// }
+// What is the unstaked collection for?
 
 // One can provide a name, e.g. `ext` to use for generated methods.
 #[ext_contract(nftext)]
@@ -77,46 +65,28 @@ impl CrossContract {
         }
     }
 
-    // pub fn deploy_status_message(&self, account_id: AccountId, amount: U128) {
-    //     Promise::new(account_id)
-    //         .create_account()
-    //         .transfer(amount.0)
-    //         .add_full_access_key(env::signer_account_pk())
-    //         .deploy_contract(
-    //             include_bytes!("../../status-message/res/status_message.wasm").to_vec(),
-    //         );
-    // }
 
-    #[result_serializer(borsh)]
     pub fn stake(&mut self, token_id: TokenId) /*  -> PromiseOrValue<TokenId>  */
     {
-        //nftext::nft_transfer_call(&self, token_id, "Stake NFT");
         let caller = env::predecessor_account_id();
         let current_timestamp = env::block_timestamp();
-        //let mut _staked = self.staked.get(&caller).unwrap().clone();
-        match self.staked.get(&caller) {
-            Some(mut _staked) => {
-                _staked.push(&Stake {
-                    timestamp: current_timestamp,
-                    staked_id: token_id.clone(),
-                    owner_id: caller.clone(),
-                });
-            }
-            None => {
-                let mut new_vec: Vector<Stake> = Vector::new(b"new_vec".to_vec());
-                new_vec.push(&Stake {
-                    timestamp: current_timestamp,
-                    staked_id: token_id.clone(),
-                    owner_id: caller.clone(),
-                });
-                self.staked.insert(&caller, &new_vec);
-            }
-        }
+        let mut staked = self
+            .staked
+            .get(&caller)
+            .unwrap_or_else(|| Vector::new(b"new_vec".to_vec()));
+
+        staked.push(&Stake {
+            timestamp: current_timestamp,
+            staked_id: token_id.clone(),
+            owner_id: caller.clone(),
+        });
+        self.staked.insert(&caller, &staked);
         // ------------------------------------------------------
 
         match self.unstaked.get(&caller) {
+            // What is this doing?
             Some(mut _unstaked) => {
-                _unstaked.push(&0);
+                _unstaked.push(&0); // Why does this add zero?
             }
             None => {
                 let new_vec: Vector<u128> = Vector::new(b"new_vec".to_vec());
@@ -131,25 +101,30 @@ impl CrossContract {
             Some(String::from("memo")),
             self.nft_account.clone(), // contract account id
             1,                        // yocto NEAR to attach
-            near_sdk::Gas(20000),     // gas to attach
+
+
+
+            // Where did this number come from? is too low.
+            near_sdk::Gas(20000),     // gas to attach 
         );
-        //nftext::nft_transfer_call(&mut self, self.nft_account, "transfer nft");
     }
+
+    /* nftext::nft_transfer_call(
+        owner,
+        caller,
+        ele.staked_id,
+        String::from("unstake"),
+        String::from("unstake"),
+    ); */
 
     #[result_serializer(borsh)]
     pub fn unstake(&mut self) {
         let owner = env::current_account_id();
         let caller = env::predecessor_account_id();
-        match self.staked.get(&caller) {
-            Some(mut _staked) => {
+        self.staked.get(&caller).map_or_else(
+            || log!("You didn't stake any token at all."),
+            |_staked| {
                 _staked.iter().for_each(|ele| {
-                    /* nftext::nft_transfer_call(
-                        owner,
-                        caller,
-                        ele.staked_id,
-                        String::from("unstake"),
-                        String::from("unstake"),
-                    ); */
                     if ele.owner_id == caller {
                         nftext::nft_transfer(
                             owner.clone(),
@@ -159,67 +134,69 @@ impl CrossContract {
                             Some(String::from("memo")),
                             self.nft_account.clone(), // contract account id
                             0,                        // yocto NEAR to attach
+
+                            // You cannot attached prepaid_gas since you have already burned some.  
+                            // Furthermore, this code currently creates multiple promises so even if you 
+                            // had attached gas left over, there wouldn't be for the next call.
                             env::prepaid_gas(),       // gas to attach
                         );
                     }
-                });
-            }
-            None => {
-                log!("You didn't stake any token at all.");
-            }
-        }
+                })
+            },
+        );
     }
 
-    #[result_serializer(borsh)]
-    pub fn claim(&self, token_id: TokenId) {
-        let caller = env::predecessor_account_id();
-        match self.staked.get(&caller) {
-            Some(mut _staked) => {
-                _staked.iter().for_each(|ele| {
-                    /* nftext::nft_transfer_call(
-                        owner,
-                        caller,
-                        ele.staked_id,
-                        String::from("unstake"),
-                        String::from("unstake"),
-                    ); */
-                    if ele.owner_id == caller {
-                        ftext::ft_transfer(
-                            env::predecessor_account_id(),
-                            1_000_000_000_000_000_000u128.into(),
-                            Some("claim".into()),
-                            self.nft_account.clone(), // contract account id
-                            1,                        // yocto NEAR to attach
-                            env::prepaid_gas(),       // gas to attach
-                        );
-                    }
-                });
-            }
-            None => {
-                log!("You are not valid claimer.");
-            }
-        }
+    /* nftext::nft_transfer_call(
+        owner,
+        caller,
+        ele.staked_id,
+        String::from("unstake"),
+        String::from("unstake"),
+    ); */
+    
+    pub fn claim(&mut self, token_id: TokenId) {  // token_id is never used
+        self.callers_stake().map_or_else(
+            || log!("You are not valid claimer."),
+            |staked| {
+                staked.iter().for_each(|ele| { // ele not used
+                    ftext::ft_transfer(
+                        env::predecessor_account_id(),
+                        1_000_000_000_000_000_000u128.into(),
+                        Some("claim".into()),
+                        self.nft_account.clone(), // contract account id
+                        1,                        // yocto NEAR to attach
+                        // See comment starting on line 138
+                        env::prepaid_gas(),       // gas to attach
+                    );
+                })
+            },
+        );
     }
 
-    #[result_serializer(borsh)]
+    fn callers_stake(&mut self) -> Option<Vector<Stake>> {
+        self.staked.get(&env::predecessor_account_id())
+    }
+
+    // #[result_serializer(borsh)]
     pub fn get_claimable(&self, token_id: TokenId) -> u128 {
         let caller = env::predecessor_account_id();
         let current_timestamp = env::block_timestamp();
         let mut staked_timestamp = 0;
-        match self.staked.get(&caller) {
-            Some(mut _staked) => {
+        self.staked.get(&caller).map_or_else(
+            || {
+                log!("{}", "Cannot get claimable amount");
+                0
+            },
+            |_staked| {
                 _staked.iter().for_each(|ele| {
                     if ele.staked_id == token_id {
                         staked_timestamp = ele.timestamp;
                     }
                 });
+                // if no token found this would make staked_timestamp 0
                 (current_timestamp - staked_timestamp).into()
-            }
-            None => {
-                log!("{}", "Cannot get claimable amount");
-                0
-            }
-        }
+            },
+        )
     }
 
     pub fn transfer_money(&mut self, account_id: AccountId, amount: u64) {

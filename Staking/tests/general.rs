@@ -1,50 +1,49 @@
-use near_sdk_sim::{
-    call, deploy, init_simulator, to_yocto, ContractAccount, UserAccount, DEFAULT_GAS,
-    STORAGE_AMOUNT,
-};
 use near_contract_standards::non_fungible_token::metadata::TokenMetadata;
-use near_contract_standards::non_fungible_token::TokenId;
 use near_contract_standards::non_fungible_token::Token;
-use near_primitives::views::FinalExecutionStatus;
+use near_contract_standards::non_fungible_token::TokenId;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
     FunctionCallAction, SignedTransaction, TransferAction,
 };
-use near_units::parse_near;
+use near_primitives::views::FinalExecutionStatus;
 use near_sdk::json_types::U128;
 use near_sdk::ONE_YOCTO;
+use near_units::parse_near;
 use workspaces::prelude::DevAccountDeployer;
 use workspaces::{Account, Contract, DevNetwork, Worker};
-extern crate cross_contract_high_level;
+// extern crate cross_contract_high_level;
 // Note: the struct xxxxxxContract is created by #[near_bindgen] from near-sdk in combination with
 // near-sdk-sim
-use cross_contract_high_level::CrossContractContract;
+// use cross_contract_high_level::CrossContractContract;
 
 pub const TOKEN_ID: &str = "0";
 
 /// # Note
-/// 
+///
 /// Workspace-rs has a drawback, which a user cannot pass caller account explicitly.
 /// This feature is important in NFTxxx.transfer_from() and NFTxxx.approve().
-/// 
+///
 /// # TODO
-/// 
+///
 /// Make test code using near_sdk_sim.
-
 
 pub async fn init(
     worker: &Worker<impl DevNetwork>,
-) -> anyhow::Result<(Contract, Contract, Contract, UserAccount, Account, Account)> {
+) -> anyhow::Result<(Contract, Contract, Contract, Account, Account)> {
     println!("***************************************************** 1");
-    let nft_contract =
-        worker.dev_deploy(include_bytes!("../../non-fungible-token/res/non_fungible_token.wasm").to_vec()).await?;
+    let nft_contract = worker
+        .dev_deploy(include_bytes!("../../NFT/res/non_fungible_token.wasm").to_vec())
+        .await?;
 
-    let ft_contract =
-        worker.dev_deploy(include_bytes!("../../fungible-token/res/fungible_token.wasm").to_vec()).await?;
+    let ft_contract = worker
+        .dev_deploy(include_bytes!("../../FT/res/fungible_token.wasm").to_vec())
+        .await?;
     println!("nft, ft contract deployed.");
 
     println!("***************************************************** 2");
-    let staking_contract = worker.dev_deploy(include_bytes!("../res/cross_contract_high_level.wasm").to_vec()).await?;
+    let staking_contract = worker
+        .dev_deploy(include_bytes!("../res/cross_contract_high_level.wasm").to_vec())
+        .await?;
     println!("staking contract deployed.");
 
     let res = nft_contract
@@ -61,7 +60,10 @@ pub async fn init(
         .transact()
         .await?;
     println!("***************************************************** 4");
-    assert!(matches!(res.details.status, FinalExecutionStatus::SuccessValue(_)));
+    assert!(matches!(
+        res.details.status,
+        FinalExecutionStatus::SuccessValue(_)
+    ));
     let alice = res.result;
     println!("subaccount alice created.");
 
@@ -71,14 +73,13 @@ pub async fn init(
         .initial_balance(parse_near!("9 N"))
         .transact()
         .await?;
-    assert!(matches!(res.details.status, FinalExecutionStatus::SuccessValue(_)));
+    assert!(matches!(
+        res.details.status,
+        FinalExecutionStatus::SuccessValue(_)
+    ));
     let bob = res.result;
     println!("subaccount bob created.");
 
-    let mut genesis = near_sdk_sim::runtime::GenesisConfig::default();
-    genesis.gas_limit = u64::MAX;
-    genesis.gas_price = 0;
-    let master_account = init_simulator(Some(genesis));
     println!("***************************************************** 5");
     let res = staking_contract
         .call(&worker, "new")
@@ -88,15 +89,15 @@ pub async fn init(
         .await?;
     assert!(matches!(res.status, FinalExecutionStatus::SuccessValue(_)));
     println!("Staking contract initialized.\nres: {:#?}", res);
-    return Ok((staking_contract, nft_contract, ft_contract, master_account, alice, bob));
+    return Ok((staking_contract, nft_contract, ft_contract, alice, bob));
 }
 
 #[tokio::test]
-async fn test_nft() -> anyhow::Result<()>  {
+async fn test_nft() -> anyhow::Result<()> {
     let worker = workspaces::sandbox();
     let initial_balance = U128::from(parse_near!("9 N"));
-    let (staking_contract, nft_contract, ft_contract, master_account, alice, bob) = init(&worker).await?;
-    
+    let (staking_contract, nft_contract, ft_contract, alice, bob) = init(&worker).await?;
+
     println!("***************************************************** 6");
     let owner_tokens: Vec<Token> = nft_contract
         .call(&worker, "nft_tokens_for_owner")
@@ -106,7 +107,7 @@ async fn test_nft() -> anyhow::Result<()>  {
         .json()?;
     assert_eq!(owner_tokens.len(), 0);
     println!("alice has 0 token.");
-    
+
     println!("***************************************************** 7");
     let token_metadata = TokenMetadata {
         title: Some("Olympus Mons".into()),
@@ -144,7 +145,6 @@ async fn test_nft() -> anyhow::Result<()>  {
     println!("nft contract has 1 token");
     assert_eq!(owner_tokens.get(0).unwrap().token_id, "0".to_string());
 
-
     println!("***************************************************** 9");
     let res = ft_contract
         .call(&worker, "new_default_meta")
@@ -154,7 +154,6 @@ async fn test_nft() -> anyhow::Result<()>  {
         .await?;
 
     assert!(matches!(res.status, FinalExecutionStatus::SuccessValue(_)));
-    
 
     println!("***************************************************** 10");
     let res = ft_contract.call(&worker, "ft_total_supply").view().await?;
@@ -168,7 +167,7 @@ async fn test_nft() -> anyhow::Result<()>  {
         .json::<U128>()?;
 
     assert_eq!(root_balance, U128::from(parse_near!("0 N")));
-    
+
     println!("***************************************************** 11");
     let res = nft_contract
         .call(&worker, "nft_approve")
@@ -207,11 +206,8 @@ async fn test_nft() -> anyhow::Result<()>  {
     println!("res: {:#?}", owner_tokens);
 
     println!("***************************************************** 13");
-    let nft_contract_account_id: workspaces::AccountId = nft_contract
-        .as_account()
-        .id()
-        .to_string()
-        .parse()?;
+    let nft_contract_account_id: workspaces::AccountId =
+        nft_contract.as_account().id().to_string().parse()?;
 
     let res = alice
         .call(&worker, nft_contract_account_id, "nft_approve")
@@ -222,19 +218,15 @@ async fn test_nft() -> anyhow::Result<()>  {
         .await?;
     println!("alice approved bob. \nres: {:#?}", res);
 
-    
     println!("***************************************************** 14");
-    let nft_contract_account_id: workspaces::AccountId = nft_contract
-        .as_account()
-        .id()
-        .to_string()
-        .parse()?;
+    let nft_contract_account_id: workspaces::AccountId =
+        nft_contract.as_account().id().to_string().parse()?;
 
     let res = alice
         .call(&worker, nft_contract_account_id, "nft_transfer")
         .args_json((
-            bob.id(), 
-            TOKEN_ID, 
+            bob.id(),
+            TOKEN_ID,
             Option::<u64>::None,
             Some("simple transfer".to_string()),
         ))?
@@ -254,23 +246,20 @@ async fn test_nft() -> anyhow::Result<()>  {
     println!("bob has one token.");
     assert_eq!(owner_tokens.len(), 1);
 
-
     println!("***************************************************** 16");
-    let nft_contract_account_id: workspaces::AccountId = nft_contract
-        .as_account()
-        .id()
-        .to_string()
-        .parse()?;
+    let nft_contract_account_id: workspaces::AccountId =
+        nft_contract.as_account().id().to_string().parse()?;
 
-    let staking_contract_account_id: workspaces::AccountId = staking_contract
-        .as_account()
-        .id()
-        .to_string()
-        .parse()?;
+    let staking_contract_account_id: workspaces::AccountId =
+        staking_contract.as_account().id().to_string().parse()?;
 
     let res = bob
         .call(&worker, nft_contract_account_id, "nft_approve")
-        .args_json((TOKEN_ID, staking_contract_account_id.clone(), Option::<String>::None))?
+        .args_json((
+            TOKEN_ID,
+            staking_contract_account_id.clone(),
+            Option::<String>::None,
+        ))?
         .gas(300_000_000_000_000)
         .deposit(510000000000000000000)
         .transact()
@@ -278,14 +267,10 @@ async fn test_nft() -> anyhow::Result<()>  {
     println!("bob approved staking contract.");
     assert!(matches!(res.status, FinalExecutionStatus::SuccessValue(_)));
 
-
     println!("***************************************************** 17");
-    let nft_contract_account_id: workspaces::AccountId = nft_contract
-        .as_account()
-        .id()
-        .to_string()
-        .parse()?;
-    
+    let nft_contract_account_id: workspaces::AccountId =
+        nft_contract.as_account().id().to_string().parse()?;
+
     let res = bob
         .call(&worker, staking_contract_account_id.clone(), "stake")
         .args_json((TOKEN_ID,))?
@@ -305,7 +290,11 @@ async fn test_nft() -> anyhow::Result<()>  {
     println!("***************************************************** 18");
     let owner_tokens: Vec<Token> = nft_contract
         .call(&worker, "nft_tokens_for_owner")
-        .args_json((staking_contract_account_id, Option::<U128>::None, Option::<u64>::None))?
+        .args_json((
+            staking_contract_account_id,
+            Option::<U128>::None,
+            Option::<u64>::None,
+        ))?
         .view()
         .await?
         .json()?;
@@ -313,5 +302,5 @@ async fn test_nft() -> anyhow::Result<()>  {
     // println!("{:#?}", owner_tokens);
     assert_eq!(owner_tokens.len(), 1);
 
-    Ok(()) 
+    Ok(())
 }
